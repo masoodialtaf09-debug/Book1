@@ -1,0 +1,74 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Relay</title>
+<style>
+:root{--bg:#EDF0F2;--panel:#fff;--ink:#172033;--mute:#566074;--line:#C9D1DB;--acc:#0B6E6E;--accink:#fff;box-sizing:border-box;padding-top:env(safe-area-inset-top,0)}
+@media(prefers-color-scheme:dark){:root{--bg:#0F1620;--panel:#172130;--ink:#E6EBF2;--mute:#9AA6B8;--line:#2C3A4E;--acc:#4FC3B8;--accink:#0B1A1A}}
+*{box-sizing:inherit}body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.55 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+main{max-width:720px;margin:0 auto;padding:24px 18px 60px}h1{font-size:2.2rem;margin:0 0 6px;letter-spacing:-.02em}h2{font-size:1.1rem;margin:28px 0 8px}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:18px;display:grid;gap:12px}
+input[type=text],input[type=email],input[type=password],textarea,select{width:100%;padding:10px 12px;font:inherit;color:var(--ink);background:var(--bg);border:1px solid var(--line);border-radius:8px}
+textarea{min-height:76px}label{font-weight:700;display:grid;gap:4px}.chk{display:flex;gap:8px;font-weight:400;align-items:center}
+button{font:inherit;font-weight:700;border:0;border-radius:10px;padding:11px 16px;background:var(--acc);color:var(--accink);cursor:pointer}button.g{background:transparent;color:var(--ink);border:1px solid var(--line)}button:disabled{opacity:.5}
+:focus-visible{outline:3px solid var(--acc);outline-offset:2px}.row{display:flex;gap:10px;flex-wrap:wrap;align-items:center;justify-content:space-between}
+pre{white-space:pre-wrap;word-break:break-word;background:var(--bg);border:1px solid var(--line);border-radius:8px;padding:12px;font:13px/1.5 ui-monospace,Menlo,monospace}
+.mute{color:var(--mute)}.err{color:#B3261E}.hide{display:none}ul{list-style:none;padding:0;margin:0}li button{width:100%;text-align:left;margin-bottom:6px}
+</style></head><body><main>
+<div class="row"><h1>Relay</h1><div id="bar" class="hide"><span id="cr" class="mute"></span> <button class="g" id="buy">Buy credits</button> <button class="g" id="out">Sign out</button></div></div>
+<p class="mute">Six AI models work on your project in a loop and Claude writes the final version.</p>
+<p id="msg" class="err" role="alert"></p>
+
+<form id="auth" class="card hide"><label>Email<input type="email" id="em" required autocomplete="email"></label>
+<label>Password<input type="password" id="pw" required minlength="8" autocomplete="current-password"></label>
+<div class="row"><button type="submit">Sign in</button><button type="button" class="g" id="up">Create account</button></div></form>
+
+<form id="app" class="card hide">
+<label>Project name<input type="text" id="name" required maxlength="120"></label>
+<label>What does finished look like?<textarea id="goal" required maxlength="1500"></textarea></label>
+<label>Project type<select id="type"><option>Software or app</option><option>Business or startup</option><option>Writing or content</option><option>Research or report</option><option>Data analysis</option><option>Event or operations</option><option>Something else</option></select></label>
+<label>Audience (optional)<input type="text" id="aud" maxlength="300"></label>
+<label>Constraints (optional)<input type="text" id="con" maxlength="300"></label>
+<div id="needs"></div>
+<label>Review rounds<select id="rounds"><option>1</option><option selected>2</option><option>3</option></select></label>
+<div class="row"><button type="submit" id="go">Run project (1 credit)</button></div></form>
+
+<section id="live" class="hide"><h2 id="lt">Progress</h2><pre id="log"></pre><div id="res" class="hide"><h2>Final version</h2><pre id="fin"></pre>
+<div class="row"><button class="g" id="cp">Copy</button><button class="g" id="dl">Download .md</button></div></div></section>
+<section id="hist" class="hide"><h2>Saved runs</h2><ul id="list"></ul></section>
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
+<script>
+const $=s=>document.querySelector(s);let cfg,sb,token="",timer;
+const NEEDS=[["facts","Current facts and sources"],["code","Code"],["office","Spreadsheets, slides or documents"],["math","Math or finance"],["people","Emails, meetings, customers"],["money","Taking payments"],["automate","Repeating work to automate"]];
+$("#needs").innerHTML=NEEDS.map(([v,t])=>`<label class="chk"><input type="checkbox" value="${v}"> ${t}</label>`).join("");
+const say=m=>$("#msg").textContent=m||"";
+async function api(p,o={}){const r=await fetch("/api/"+p,{...o,headers:{"Content-Type":"application/json",...(token?{Authorization:"Bearer "+token}:{})}});
+ const j=await r.json().catch(()=>({}));if(!r.ok)throw new Error(j.detail||"Something went wrong.");return j}
+async function init(){cfg=await (await fetch("/api/config")).json();
+ if(cfg.dev){return start()}
+ sb=supabase.createClient(cfg.supabaseUrl,cfg.anonKey);
+ sb.auth.onAuthStateChange((_e,s)=>{token=s?s.access_token:"";s?start():stop()});
+ const{data}=await sb.auth.getSession();if(!data.session)$("#auth").classList.remove("hide")}
+function stop(){["app","bar","hist","live"].forEach(i=>$("#"+i).classList.add("hide"));$("#auth").classList.remove("hide")}
+async function start(){$("#auth").classList.add("hide");["app","bar","hist"].forEach(i=>$("#"+i).classList.remove("hide"));
+ $("#out").classList.toggle("hide",cfg.dev);$("#buy").classList.toggle("hide",!cfg.billing);
+ if(location.search.includes("paid=1"))say("Payment received. Credits appear in a few seconds.");
+ refresh()}
+async function refresh(){try{const m=await api("me");$("#cr").textContent=cfg.dev?"Dev mode":m.credits+" credits";
+ const l=await api("runs");$("#list").innerHTML="";l.forEach(r=>{const li=document.createElement("li"),b=document.createElement("button");b.className="g";
+ b.textContent=`${r.name} (${r.status})`;b.onclick=()=>watch(r.id);li.appendChild(b);$("#list").appendChild(li)})}catch(e){say(e.message)}}
+$("#auth").onsubmit=async e=>{e.preventDefault();say();const{error}=await sb.auth.signInWithPassword({email:$("#em").value,password:$("#pw").value});if(error)say(error.message)};
+$("#up").onclick=async()=>{say();const{error}=await sb.auth.signUp({email:$("#em").value,password:$("#pw").value});say(error?error.message:"Check your email to confirm, then sign in.")};
+$("#out").onclick=()=>sb.auth.signOut();
+$("#buy").onclick=async()=>{try{location=(await api("checkout",{method:"POST"})).url}catch(e){say(e.message)}};
+$("#app").onsubmit=async e=>{e.preventDefault();say();$("#go").disabled=true;
+ try{const r=await api("runs",{method:"POST",body:JSON.stringify({name:$("#name").value,goal:$("#goal").value,type:$("#type").value,audience:$("#aud").value,constraints:$("#con").value,
+  needs:[...document.querySelectorAll("#needs input:checked")].map(i=>i.value),rounds:+$("#rounds").value})});watch(r.id)}catch(err){say(err.message)}$("#go").disabled=false};
+function watch(id){clearInterval(timer);$("#live").classList.remove("hide");$("#res").classList.add("hide");$("#log").textContent="Starting…";
+ const tick=async()=>{try{const r=await api("runs/"+id);$("#lt").textContent=r.name;$("#log").textContent=r.events.join("\n")||"Starting…";
+  if(r.status!=="running"){clearInterval(timer);refresh();if(r.final){$("#fin").textContent=r.final;$("#res").classList.remove("hide");
+   $("#cp").onclick=()=>navigator.clipboard.writeText(r.final);$("#dl").onclick=()=>{const a=document.createElement("a");a.href=URL.createObjectURL(new Blob([r.final],{type:"text/markdown"}));a.download=r.name.replace(/\W+/g,"-")+".md";a.click()}}}}catch(e){clearInterval(timer);say(e.message)}};
+ tick();timer=setInterval(tick,2500)}
+init();
+</script></main></body></html>
