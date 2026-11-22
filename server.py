@@ -24,8 +24,9 @@ ACTIVE = {}   # user id -> run id (one run at a time per user)
 
 
 def sb(method, path, **kw):
-    h = {"apikey": SB_SERVICE, "Authorization": f"Bearer {SB_SERVICE}", "Content-Type": "application/json",
-         "Prefer": "return=representation"}
+    h = {"apikey": SB_SERVICE, "Content-Type": "application/json", "Prefer": "return=representation"}
+    if not SB_SERVICE.startswith("sb_secret_"):  # new secret keys go in apikey only; legacy JWT keys also go in Authorization
+        h["Authorization"] = f"Bearer {SB_SERVICE}"
     r = requests.request(method, f"{SB_URL}/rest/v1/{path}", headers=h, timeout=30, **kw)
     r.raise_for_status()
     return r.json() if r.text else None
@@ -197,4 +198,6 @@ async def stripe_webhook(request: Request, stripe_signature: Optional[str] = Hea
 
 @app.get("/")
 def index():
-    return FileResponse(pathlib.Path(__file__).parent / "static" / "index.html")
+    here = pathlib.Path(__file__).parent
+    page = here / "index.html"
+    return FileResponse(page if page.exists() else here / "static" / "index.html")
